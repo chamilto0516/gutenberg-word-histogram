@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wait)",
+      "Bash(/opt/homebrew/bin/mvn --version)",
+      "Bash(/opt/homebrew/bin/mvn package *)",
+      "Bash(java *)",
+      "Bash(curl -sv \"https://www.gutenberg.org/ebooks/search/?query=Robinson+Crusoe&format=txt\" -A \"Mozilla/5.0\")",
+      "Bash(curl -L -s \"https://www.gutenberg.org/ebooks/search/?query=Robinson+Crusoe&format=txt\" -A \"Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36\")",
+      "Bash(curl -L -s \"https://www.gutenberg.org/ebooks/search/?query=Robinson+Crusoe\" -A \"Mozilla/5.0\")",
+      "Bash(curl -s \"https://www.gutenberg.org/files/521/521-0.txt\")",
+      "Bash(curl -s \"https://www.gutenberg.org/files/1342/1342-0.txt\")",
+      "Bash(curl -s \"https://www.gutenberg.org/ebooks/1342\")",
+      "Bash(curl -s \"https://www.gutenberg.org/ebooks/search/?query=Robinson+Crusoe\")",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git branch *)",
+      "Bash(git commit *)",
+      "Bash(gh repo *)"
+    ]
+  }
+}
