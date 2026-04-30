@@ -16,7 +16,9 @@
       "Bash(git add *)",
       "Bash(git branch *)",
       "Bash(git commit *)",
-      "Bash(gh repo *)"
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "Bash(git config *)"
     ]
   }
 }
