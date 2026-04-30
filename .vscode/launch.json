@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Run WordHistogram",
+      "request": "launch",
+      "mainClass": "com.gutenberg.WordHistogram",
+      "projectName": "word-histogram",
+      "args": "Robinson Crusoe"
+    },
+    {
+      "type": "java",
+      "name": "Debug WordHistogram",
+      "request": "launch",
+      "mainClass": "com.gutenberg.WordHistogram",
+      "projectName": "word-histogram",
+      "args": "Robinson Crusoe"
+    }
+  ]
+}

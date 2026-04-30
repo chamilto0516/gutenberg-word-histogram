@@ -1,0 +1,19 @@
+{
+  "java.jdt.ls.java.home": "/Users/bill.hamilton/java/openjdk_21.0.8.0.121_21.45.56_aarch64",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "/Users/bill.hamilton/java/openjdk_21.0.8.0.121_21.45.56_aarch64",
+      "default": true
+    }
+  ],
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "files.exclude": {
+    "**/.git": true,
+    "**/.svn": true,
+    "**/.hg": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+    ".mule": true
+  }
+}
