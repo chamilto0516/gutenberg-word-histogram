@@ -45,7 +45,7 @@ public class WordHistogram {
         "whereby", "wherein", "whereof", "whereto", "whither", "worth", "yours"
     ));
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         if (args.length == 0) {
             System.err.println("Usage: java -jar word-histogram.jar \"<book title>\"");
             System.exit(1);
@@ -54,30 +54,36 @@ public class WordHistogram {
         String title = String.join(" ", args);
         System.out.println("Searching Project Gutenberg for: " + title);
 
-        HttpClient client = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
 
-        String[] bookInfo = searchForBook(client, title);
-        if (bookInfo == null) {
-            System.err.println("Could not find a matching book on Project Gutenberg for: " + title);
+            String[] bookInfo = searchForBook(client, title);
+            if (bookInfo == null) {
+                throw new RuntimeException("No matching book found on Project Gutenberg");
+            }
+            int bookId = Integer.parseInt(bookInfo[0]);
+            String author = bookInfo[1];
+
+            System.out.println("Found eBook #" + bookId + ", downloading...");
+            String rawText = downloadText(client, bookId);
+            String text = stripGutenbergBoilerplate(rawText);
+
+            Map<String, Integer> freq = countWords(text);
+            List<Map.Entry<String, Integer>> top20 = freq.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(TOP_N)
+                .collect(Collectors.toList());
+
+            printHistogram(top20, freq.size());
+            logRun(bookId, title, author, freq.size());
+        } catch (Exception e) {
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
+            System.err.println("Error: " + msg);
+            logError(title, msg);
             System.exit(1);
         }
-        int bookId = Integer.parseInt(bookInfo[0]);
-        String author = bookInfo[1];
-
-        System.out.println("Found eBook #" + bookId + ", downloading...");
-        String rawText = downloadText(client, bookId);
-        String text = stripGutenbergBoilerplate(rawText);
-
-        Map<String, Integer> freq = countWords(text);
-        List<Map.Entry<String, Integer>> top20 = freq.entrySet().stream()
-            .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-            .limit(TOP_N)
-            .collect(Collectors.toList());
-
-        printHistogram(top20, freq.size());
-        logRun(bookId, title, author, freq.size());
     }
 
     // Returns {bookId, author} or null if not found
@@ -140,6 +146,14 @@ public class WordHistogram {
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String line = bookId + "," + csvQuote(title) + "," + csvQuote(author) + "," + uniqueWords + "," + ts + "\n";
         Files.writeString(Path.of("books.log"), line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+
+    private static void logError(String title, String message) {
+        try {
+            String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String entry = "[" + ts + "] title=\"" + title + "\" error=" + message + "\n";
+            Files.writeString(Path.of("error.log"), entry, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception ignored) {}
     }
 
     private static String csvQuote(String s) {
