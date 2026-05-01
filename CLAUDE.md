@@ -49,6 +49,22 @@ VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Deb
 - Compiler target: Java 17 (runs fine on JDK 21)
 - No external dependencies — uses only `java.net.http.HttpClient` (built-in since Java 11)
 
+## Future ideas to consider
+
+### Analytics
+- **Book comparison** — run two titles and print a side-by-side histogram, highlighting words unique to each
+- **books.log report mode** — a `--report` flag that reads the accumulated log and shows trends across all runs (most-run authors, word count distribution, etc.)
+- **Bigrams/trigrams** — top two- or three-word phrases instead of single words (e.g. "captain ahab" vs just "captain")
+
+### Usability
+- **Local text cache** — save downloaded `.txt` files so re-runs don't hit Gutenberg again; useful when tuning stop-words
+- **Retry on network failure** — auto-retry SSL handshake errors with a short backoff
+- **Configurable flags** — `--top 30`, `--min-length 4`, `--bar-width 40` instead of editing source constants
+
+### Output
+- **HTML output** — write a self-contained `histogram.html` with a real bar chart (CSS only, no dependencies)
+- **Reading level estimate** — average word length + type-token ratio gives a rough complexity score per book
+
 ## Known behaviour / gotchas
 - Gutenberg search returns the **first** result; if the title is ambiguous the wrong book may be picked. Pass a precise title to avoid this.
 - Some older Gutenberg files use different filename patterns and may fail the two-candidate download fallback.
