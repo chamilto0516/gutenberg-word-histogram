@@ -58,6 +58,18 @@ The title is passed directly to the Gutenberg search engine. Use a specific titl
 4. **Tokenise** — splits on non-letter characters, lowercases all tokens, keeps only words with 5 or more letters.
 5. **Filter** — removes common English stop words (their, would, which, before, because, etc.) so the histogram reflects meaningful vocabulary.
 6. **Histogram** — selects the top 20 by frequency, scales bars proportionally to a 60-character max width, and prints the total count of unique qualifying words.
+7. **CrossPoll** — after each successful run, compares the current book's top-N words against the previous book's top-N. Any words that appear in both lists and are not already stop words are appended to `common.dat` as candidates to improve the stop-word list over time (see below).
+
+## CrossPoll: stop-word discovery
+
+Each run automatically cross-references the new book's top words with those of the last book in `books.log` (skipped if it's the same book). Words that appear in both top-N lists but are not already filtered are recorded in `common.dat`:
+
+```
+thought  # books 120+84 2026-05-04 10:25:48
+world    # books 45304+2641 2026-05-04 10:27:06
+```
+
+The format is `word  # books <currentId>+<prevId> <timestamp>`. Words that accumulate multiple entries across different book pairs are strong candidates to add to `STOP_WORDS` in `WordHistogram.java`, making future histograms progressively more meaningful. `common.dat` is local-only and not committed to the repository.
 
 ## No external dependencies
 
