@@ -43,7 +43,8 @@ public class WordHistogram {
         "remain", "remains", "seems", "simply", "somebody", "sometime", "somewhat",
         "somewhere", "thereby", "therein", "thereof", "thereto", "throughout", "thence",
         "toward", "towards", "unless", "unlike", "usually", "various", "versus",
-        "whereby", "wherein", "whereof", "whereto", "whither", "worth", "yours"
+        "whereby", "wherein", "whereof", "whereto", "whither", "worth", "yours",
+        "thought", "things", "world"
     ));
 
     public static void main(String[] args) {
