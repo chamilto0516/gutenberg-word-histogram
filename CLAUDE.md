@@ -83,8 +83,8 @@ VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Deb
 
 ### Usability
 - **Local text cache** ✅ — implemented: `book_cache/<id>.txt` checked before any network call; created on first download; prints `(cache hit)` when served from disk. Cache directory is gitignored.
-- **Retry on network failure** — auto-retry SSL handshake errors with a short backoff (currently these are caught and written to `error.log`)
-- **Configurable flags** — `--top 30`, `--min-length 4`, `--bar-width 40` instead of editing source constants
+- **Retry on network failure** ✅ — implemented: up to 3 attempts with 2s/4s exponential backoff on any network exception; constants `MAX_RETRIES` and `RETRY_DELAY_MS` are tunable at the top of the class.
+- **Configurable flags** ✅ — implemented: `--top N`, `--bar-width N`, `--min-length N` can be passed before or alongside the title; defaults to existing constants when omitted. `--help` prints usage.
 
 ### Stop-Word Discovery
 - **CrossPoll** ✅ — implemented: after each successful run, the previous book ID is read from `books.log`. If it differs from the current book, that book's text is fetched (cache-aware), its top-N words computed, and any words appearing in both top-N lists that are not already in `STOP_WORDS` are appended to `common.dat` with provenance (`word  # books A+B timestamp`). Words accumulating multiple entries across different pairs are strong candidates to promote into `STOP_WORDS`.

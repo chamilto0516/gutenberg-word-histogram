@@ -21,6 +21,8 @@ public class WordHistogram {
     private static final int TOP_N = 20;
     private static final int BAR_WIDTH = 60;
     private static final String CACHE_DIR = "book_cache";
+    private static final int MAX_RETRIES = 3;
+    private static final int RETRY_DELAY_MS = 2000;
 
     private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
         "their", "which", "would", "about", "could", "shall", "there", "these",
@@ -49,11 +51,41 @@ public class WordHistogram {
 
     public static void main(String[] args) {
         if (args.length == 0) {
-            System.err.println("Usage: java -jar word-histogram.jar \"<book title>\"");
+            printUsage();
             System.exit(1);
         }
 
-        String title = String.join(" ", args);
+        // Parse optional flags; collect remaining tokens as the book title
+        int topN = TOP_N;
+        int barWidth = BAR_WIDTH;
+        int minLength = 5;
+        List<String> titleTokens = new ArrayList<>();
+
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--top":
+                    if (++i < args.length) topN = Integer.parseInt(args[i]);
+                    break;
+                case "--bar-width":
+                    if (++i < args.length) barWidth = Integer.parseInt(args[i]);
+                    break;
+                case "--min-length":
+                    if (++i < args.length) minLength = Integer.parseInt(args[i]);
+                    break;
+                case "--help":
+                    printUsage();
+                    System.exit(0);
+                default:
+                    titleTokens.add(args[i]);
+            }
+        }
+
+        if (titleTokens.isEmpty()) {
+            printUsage();
+            System.exit(1);
+        }
+
+        String title = String.join(" ", titleTokens);
         System.out.println("Searching Project Gutenberg for: " + title);
 
         try {
@@ -72,17 +104,17 @@ public class WordHistogram {
             String rawText = downloadText(client, bookId);
             String text = stripGutenbergBoilerplate(rawText);
 
-            Map<String, Integer> freq = countWords(text);
-            List<Map.Entry<String, Integer>> top20 = freq.entrySet().stream()
+            Map<String, Integer> freq = countWords(text, minLength);
+            List<Map.Entry<String, Integer>> topWords = freq.entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .limit(TOP_N)
+                .limit(topN)
                 .collect(Collectors.toList());
 
-            printHistogram(top20, freq.size());
+            printHistogram(topWords, freq.size(), topN, barWidth, minLength);
             int prevBookId = lastLoggedBookId();
             logRun(bookId, title, author, freq.size());
             if (prevBookId > 0 && prevBookId != bookId) {
-                crossPoll(client, bookId, top20, prevBookId);
+                crossPoll(client, bookId, topWords, prevBookId, topN);
             }
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
@@ -90,6 +122,13 @@ public class WordHistogram {
             logError(title, msg);
             System.exit(1);
         }
+    }
+
+    private static void printUsage() {
+        System.err.println("Usage: java -jar word-histogram.jar [options] \"<book title>\"");
+        System.err.println("  --top N          Words to show in histogram (default: " + TOP_N + ")");
+        System.err.println("  --bar-width N    Max bar width in asterisks  (default: " + BAR_WIDTH + ")");
+        System.err.println("  --min-length N   Minimum word length         (default: 5)");
     }
 
     // Returns {bookId, author} or null if not found
@@ -103,8 +142,8 @@ public class WordHistogram {
             .GET()
             .build();
 
-        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() != 200) {
+        HttpResponse<String> resp = sendWithRetry(client, req);
+        if (resp == null || resp.statusCode() != 200) {
             return null;
         }
 
@@ -144,8 +183,8 @@ public class WordHistogram {
                 .header("User-Agent", "Mozilla/5.0 (compatible; GutenbergHistogram/1.0)")
                 .GET()
                 .build();
-            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-            if (resp.statusCode() == 200) {
+            HttpResponse<String> resp = sendWithRetry(client, req);
+            if (resp != null && resp.statusCode() == 200) {
                 String text = resp.body();
                 Files.createDirectories(Path.of(CACHE_DIR));
                 Files.writeString(cacheFile, text);
@@ -154,6 +193,22 @@ public class WordHistogram {
         }
 
         throw new RuntimeException("Could not download text for eBook #" + bookId);
+    }
+
+    private static HttpResponse<String> sendWithRetry(HttpClient client, HttpRequest req) throws Exception {
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                return client.send(req, HttpResponse.BodyHandlers.ofString());
+            } catch (Exception e) {
+                lastException = e;
+                if (attempt < MAX_RETRIES) {
+                    System.out.println("(network error, retrying " + attempt + "/" + (MAX_RETRIES - 1) + "...)");
+                    Thread.sleep(RETRY_DELAY_MS * attempt);
+                }
+            }
+        }
+        throw lastException;
     }
 
     private static int lastLoggedBookId() {
@@ -174,13 +229,13 @@ public class WordHistogram {
     // CrossPoll: compare current book's top-N with previous book's top-N,
     // append words in common that aren't already stop words to common.dat
     private static void crossPoll(HttpClient client, int currentId,
-            List<Map.Entry<String, Integer>> currentTop, int prevId) {
+            List<Map.Entry<String, Integer>> currentTop, int prevId, int topN) {
         try {
             System.out.println("\n[CrossPoll] Comparing with eBook #" + prevId + "...");
             String prevText = stripGutenbergBoilerplate(downloadText(client, prevId));
-            Set<String> prevTopWords = countWords(prevText).entrySet().stream()
+            Set<String> prevTopWords = countWords(prevText, 5).entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .limit(TOP_N)
+                .limit(topN)
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
@@ -244,28 +299,29 @@ public class WordHistogram {
         return text;
     }
 
-    private static Map<String, Integer> countWords(String text) {
+    private static Map<String, Integer> countWords(String text, int minLength) {
         Map<String, Integer> freq = new HashMap<>();
         for (String token : text.split("[^a-zA-Z]+")) {
             String word = token.toLowerCase();
-            if (word.length() >= 5 && !STOP_WORDS.contains(word)) {
+            if (word.length() >= minLength && !STOP_WORDS.contains(word)) {
                 freq.merge(word, 1, Integer::sum);
             }
         }
         return freq;
     }
 
-    private static void printHistogram(List<Map.Entry<String, Integer>> top20, int totalUnique) {
-        int maxCount = top20.get(0).getValue();
-        int labelWidth = top20.stream().mapToInt(e -> e.getKey().length()).max().orElse(10);
+    private static void printHistogram(List<Map.Entry<String, Integer>> topWords, int totalUnique,
+            int topN, int barWidth, int minLength) {
+        int maxCount = topWords.get(0).getValue();
+        int labelWidth = topWords.stream().mapToInt(e -> e.getKey().length()).max().orElse(10);
 
-        System.out.println("\nWord frequency histogram (top " + TOP_N + " words, 5+ letters, filtered):\n");
-        for (Map.Entry<String, Integer> entry : top20) {
-            int bars = (int) Math.round(entry.getValue() * (double) BAR_WIDTH / maxCount);
+        System.out.println("\nWord frequency histogram (top " + topN + " words, " + minLength + "+ letters, filtered):\n");
+        for (Map.Entry<String, Integer> entry : topWords) {
+            int bars = (int) Math.round(entry.getValue() * (double) barWidth / maxCount);
             String bar = "*".repeat(bars);
-            System.out.printf("%-" + labelWidth + "s : %-" + BAR_WIDTH + "s  (%d)%n",
+            System.out.printf("%-" + labelWidth + "s : %-" + barWidth + "s  (%d)%n",
                 entry.getKey(), bar, entry.getValue());
         }
-        System.out.printf("%nTotal unique words (5+ letters, filtered): %,d%n", totalUnique);
+        System.out.printf("%nTotal unique words (%d+ letters, filtered): %,d%n", minLength, totalUnique);
     }
 }
