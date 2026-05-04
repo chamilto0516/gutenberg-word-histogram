@@ -2,3 +2,4 @@ target/
 books.log
 error.log
 common.dat
+book_cache/

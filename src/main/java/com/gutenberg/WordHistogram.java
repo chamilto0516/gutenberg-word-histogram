@@ -20,6 +20,7 @@ public class WordHistogram {
 
     private static final int TOP_N = 20;
     private static final int BAR_WIDTH = 60;
+    private static final String CACHE_DIR = "book_cache";
 
     private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
         "their", "which", "would", "about", "could", "shall", "there", "these",
@@ -125,7 +126,12 @@ public class WordHistogram {
     }
 
     private static String downloadText(HttpClient client, int bookId) throws Exception {
-        // Try <id>-0.txt first, fall back to <id>.txt
+        Path cacheFile = Path.of(CACHE_DIR, bookId + ".txt");
+        if (Files.exists(cacheFile)) {
+            System.out.println("(cache hit)");
+            return Files.readString(cacheFile);
+        }
+
         String[] candidates = {
             "https://www.gutenberg.org/files/" + bookId + "/" + bookId + "-0.txt",
             "https://www.gutenberg.org/files/" + bookId + "/" + bookId + ".txt"
@@ -139,7 +145,10 @@ public class WordHistogram {
                 .build();
             HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() == 200) {
-                return resp.body();
+                String text = resp.body();
+                Files.createDirectories(Path.of(CACHE_DIR));
+                Files.writeString(cacheFile, text);
+                return text;
             }
         }
 
