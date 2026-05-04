@@ -61,6 +61,9 @@ VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Deb
 - **Retry on network failure** — auto-retry SSL handshake errors with a short backoff
 - **Configurable flags** — `--top 30`, `--min-length 4`, `--bar-width 40` instead of editing source constants
 
+### Stop-Word Discovery
+- **CrossPoll** — on each run, if `books.log` exists and its last entry has a different book ID than the current run, silently re-download that previous book and compute its top-N word list. Find the intersection of the two top-N lists and append any words not already in `STOP_WORDS` to `common.dat` (one word per line, with the two book IDs and timestamp noted alongside). Over time `common.dat` accumulates strong stop-word candidates drawn from real co-occurrence across books. Skip if the last log entry is the same book ID to avoid self-comparison.
+
 ### Output
 - **HTML output** — write a self-contained `histogram.html` with a real bar chart (CSS only, no dependencies)
 - **Reading level estimate** — average word length + type-token ratio gives a rough complexity score per book

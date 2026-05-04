@@ -77,7 +77,11 @@ public class WordHistogram {
                 .collect(Collectors.toList());
 
             printHistogram(top20, freq.size());
+            int prevBookId = lastLoggedBookId();
             logRun(bookId, title, author, freq.size());
+            if (prevBookId > 0 && prevBookId != bookId) {
+                crossPoll(client, bookId, top20, prevBookId);
+            }
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
             System.err.println("Error: " + msg);
@@ -140,6 +144,63 @@ public class WordHistogram {
         }
 
         throw new RuntimeException("Could not download text for eBook #" + bookId);
+    }
+
+    private static int lastLoggedBookId() {
+        try {
+            Path log = Path.of("books.log");
+            if (!Files.exists(log)) return -1;
+            List<String> lines = Files.readAllLines(log);
+            for (int i = lines.size() - 1; i >= 0; i--) {
+                String line = lines.get(i).trim();
+                if (!line.isEmpty()) {
+                    return Integer.parseInt(line.split(",")[0]);
+                }
+            }
+        } catch (Exception ignored) {}
+        return -1;
+    }
+
+    // CrossPoll: compare current book's top-N with previous book's top-N,
+    // append words in common that aren't already stop words to common.dat
+    private static void crossPoll(HttpClient client, int currentId,
+            List<Map.Entry<String, Integer>> currentTop, int prevId) {
+        try {
+            System.out.println("\n[CrossPoll] Comparing with eBook #" + prevId + "...");
+            String prevText = stripGutenbergBoilerplate(downloadText(client, prevId));
+            Set<String> prevTopWords = countWords(prevText).entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(TOP_N)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+            Set<String> currentTopWords = currentTop.stream()
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+
+            List<String> common = prevTopWords.stream()
+                .filter(currentTopWords::contains)
+                .filter(w -> !STOP_WORDS.contains(w))
+                .sorted()
+                .collect(Collectors.toList());
+
+            if (common.isEmpty()) {
+                System.out.println("[CrossPoll] No new stop-word candidates found.");
+                return;
+            }
+
+            String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            StringBuilder sb = new StringBuilder();
+            for (String word : common) {
+                sb.append(word).append("  # books ").append(currentId)
+                  .append("+").append(prevId).append(" ").append(ts).append("\n");
+            }
+            Files.writeString(Path.of("common.dat"), sb.toString(),
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            System.out.println("[CrossPoll] " + common.size() + " candidate(s) appended to common.dat: " + common);
+        } catch (Exception e) {
+            System.out.println("[CrossPoll] Skipped: " + e.getMessage());
+        }
     }
 
     private static void logRun(int bookId, String title, String author, int uniqueWords) throws Exception {
