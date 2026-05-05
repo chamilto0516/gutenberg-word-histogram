@@ -1,12 +1,12 @@
 # Gutenberg Word Histogram
 
-A Java command-line tool that downloads any public-domain book from [Project Gutenberg](https://www.gutenberg.org/) by title and prints a text histogram of its 20 most frequently used words (5 letters or longer).
+A Java command-line tool that downloads any public-domain book from [Project Gutenberg](https://www.gutenberg.org/) by title or eBook ID and prints a text histogram of its 20 most frequently used words (5 letters or longer).
 
 ## Example output
 
 ```
 Searching Project Gutenberg for: Robinson Crusoe
-Found eBook #521, downloading...
+Found: Robinson Crusoe (eBook #521), downloading...
 
 Word frequency histogram (top 20 words, 5+ letters, filtered):
 
@@ -37,7 +37,11 @@ This produces `target/word-histogram-1.0-SNAPSHOT.jar`.
 ## Usage
 
 ```bash
+# By title — searches Gutenberg and uses the first result
 java -jar target/word-histogram-1.0-SNAPSHOT.jar "<book title>"
+
+# By eBook ID — fetches the book directly; resolves and displays title/author
+java -jar target/word-histogram-1.0-SNAPSHOT.jar <id>
 ```
 
 Examples:
@@ -46,19 +50,22 @@ Examples:
 java -jar target/word-histogram-1.0-SNAPSHOT.jar "Robinson Crusoe"
 java -jar target/word-histogram-1.0-SNAPSHOT.jar "Pride and Prejudice"
 java -jar target/word-histogram-1.0-SNAPSHOT.jar "Moby Dick"
+java -jar target/word-histogram-1.0-SNAPSHOT.jar 2701   # Moby Dick by ID
+java -jar target/word-histogram-1.0-SNAPSHOT.jar 16     # Peter Pan by ID
 ```
 
-The title is passed directly to the Gutenberg search engine. Use a specific title to ensure the right book is matched; the first search result is always used.
+When using a title, the first Gutenberg search result is always used — supply a precise title or use the numeric ID to target a specific edition.
 
 ## How it works
 
-1. **Search** — queries `gutenberg.org/ebooks/search/?query=<title>` and extracts the first eBook ID from the HTML response.
-2. **Download** — fetches the plain-text file at `gutenberg.org/files/<id>/<id>-0.txt` (falls back to `<id>.txt`).
-3. **Strip boilerplate** — trims the Gutenberg header and footer (between `*** START OF` and `*** END OF` markers).
-4. **Tokenise** — splits on non-letter characters, lowercases all tokens, keeps only words with 5 or more letters.
-5. **Filter** — removes common English stop words (their, would, which, before, because, etc.) so the histogram reflects meaningful vocabulary.
-6. **Histogram** — selects the top 20 by frequency, scales bars proportionally to a 60-character max width, and prints the total count of unique qualifying words.
-7. **CrossPoll** — after each successful run, compares the current book's top-N words against the previous book's top-N. Any words that appear in both lists and are not already stop words are appended to `common.dat` as candidates to improve the stop-word list over time (see below).
+1. **Input detection** — if the argument is a plain integer it is treated as a Gutenberg eBook ID and the detail page (`gutenberg.org/ebooks/<id>`) is fetched to resolve the title and author. Otherwise the argument is treated as a title and passed to the search engine.
+2. **Search** *(title path only)* — queries `gutenberg.org/ebooks/search/?query=<title>` and extracts the first eBook ID from the HTML response.
+3. **Download** — fetches the plain-text file at `gutenberg.org/files/<id>/<id>-0.txt` (falls back to `<id>.txt`).
+4. **Strip boilerplate** — trims the Gutenberg header and footer (between `*** START OF` and `*** END OF` markers).
+5. **Tokenise** — splits on non-letter characters, lowercases all tokens, keeps only words with 5 or more letters.
+6. **Filter** — removes common English stop words (their, would, which, before, because, etc.) so the histogram reflects meaningful vocabulary.
+7. **Histogram** — selects the top 20 by frequency, scales bars proportionally to a 60-character max width, and prints the total count of unique qualifying words.
+8. **CrossPoll** — after each successful run, compares the current book's top-N words against the previous book's top-N. Any words that appear in both lists and are not already stop words are appended to `common.dat` as candidates to improve the stop-word list over time (see below).
 
 ## CrossPoll: stop-word discovery
 

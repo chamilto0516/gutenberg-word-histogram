@@ -86,20 +86,35 @@ public class WordHistogram {
         }
 
         String title = String.join(" ", titleTokens);
-        System.out.println("Searching Project Gutenberg for: " + title);
 
         try {
             HttpClient client = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
 
-            String[] bookInfo = searchForBook(client, title);
-            if (bookInfo == null) {
-                throw new RuntimeException("No matching book found on Project Gutenberg");
+            int bookId;
+            String author;
+            String foundTitle;
+
+            if (title.matches("\\d+")) {
+                bookId = Integer.parseInt(title);
+                System.out.println("Looking up Project Gutenberg eBook #" + bookId + "...");
+                String[] meta = fetchBookMetadata(client, bookId);
+                if (meta == null) {
+                    throw new RuntimeException("Could not retrieve metadata for eBook #" + bookId);
+                }
+                author = meta[0];
+                foundTitle = meta[1].isEmpty() ? "eBook #" + bookId : meta[1];
+            } else {
+                System.out.println("Searching Project Gutenberg for: " + title);
+                String[] bookInfo = searchForBook(client, title);
+                if (bookInfo == null) {
+                    throw new RuntimeException("No matching book found on Project Gutenberg");
+                }
+                bookId = Integer.parseInt(bookInfo[0]);
+                author = bookInfo[1];
+                foundTitle = bookInfo[2];
             }
-            int bookId = Integer.parseInt(bookInfo[0]);
-            String author = bookInfo[1];
-            String foundTitle = bookInfo[2];
 
             System.out.println("Found: " + foundTitle + " (eBook #" + bookId + "), downloading...");
             String rawText = downloadText(client, bookId);
@@ -113,7 +128,7 @@ public class WordHistogram {
 
             printHistogram(topWords, freq.size(), topN, barWidth, minLength);
             int prevBookId = lastLoggedBookId();
-            logRun(bookId, title, author, freq.size());
+            logRun(bookId, foundTitle, author, freq.size());
             if (prevBookId > 0 && prevBookId != bookId) {
                 crossPoll(client, bookId, topWords, prevBookId, topN);
             }
@@ -169,6 +184,31 @@ public class WordHistogram {
         }
 
         return new String[]{bookId, author, bookTitle};
+    }
+
+    // Returns {author, title} by fetching the book's detail page directly
+    private static String[] fetchBookMetadata(HttpClient client, int bookId) throws Exception {
+        String url = "https://www.gutenberg.org/ebooks/" + bookId;
+        HttpRequest req = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("User-Agent", "Mozilla/5.0 (compatible; GutenbergHistogram/1.0)")
+            .GET()
+            .build();
+        HttpResponse<String> resp = sendWithRetry(client, req);
+        if (resp == null || resp.statusCode() != 200) return null;
+
+        String html = resp.body();
+        String bookTitle = "";
+        String author = "";
+
+        Matcher titleMatcher = Pattern.compile("<title>([^|<]+)").matcher(html);
+        if (titleMatcher.find()) bookTitle = titleMatcher.group(1).trim();
+
+        Matcher authorMatcher = Pattern.compile(
+            "itemprop=\"creator\"[^>]*>\\s*<a[^>]*>([^<]+)</a>", Pattern.DOTALL).matcher(html);
+        if (authorMatcher.find()) author = authorMatcher.group(1).trim();
+
+        return new String[]{author, bookTitle};
     }
 
     private static String downloadText(HttpClient client, int bookId) throws Exception {

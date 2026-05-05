@@ -24,9 +24,13 @@ cc_jgh/
 # Build (Maven must be on PATH — installed via brew)
 /opt/homebrew/bin/mvn package -q
 
-# Run
+# Run by title
 java -jar target/word-histogram-1.0-SNAPSHOT.jar "Robinson Crusoe"
 java -jar target/word-histogram-1.0-SNAPSHOT.jar "Pride and Prejudice"
+
+# Run by Gutenberg eBook ID (fetches metadata to display title/author)
+java -jar target/word-histogram-1.0-SNAPSHOT.jar 16
+java -jar target/word-histogram-1.0-SNAPSHOT.jar 2701
 ```
 
 VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Debug WordHistogram**, edit `args` in `.vscode/launch.json` to change the book title.
@@ -35,8 +39,9 @@ VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Deb
 
 | Method | Purpose |
 |--------|---------|
-| `main` | Entry point — orchestrates search → download → count → print → log → CrossPoll |
+| `main` | Entry point — detects numeric ID vs title, orchestrates search/lookup → download → count → print → log → CrossPoll |
 | `searchForBook` | GETs `gutenberg.org/ebooks/search/?query=<title>`, regex-extracts first eBook ID and author from HTML |
+| `fetchBookMetadata` | GETs `gutenberg.org/ebooks/<id>` detail page, extracts title and author for direct-ID lookups |
 | `downloadText` | Checks `book_cache/<id>.txt` first; on miss fetches from Gutenberg and saves to cache |
 | `stripGutenbergBoilerplate` | Trims content to between `*** START OF` and `*** END OF` markers |
 | `countWords` | Splits on non-letters, lowercases, keeps ≥5-letter tokens not in stop-word set |
@@ -85,6 +90,7 @@ VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Deb
 - **Local text cache** ✅ — implemented: `book_cache/<id>.txt` checked before any network call; created on first download; prints `(cache hit)` when served from disk. Cache directory is gitignored.
 - **Retry on network failure** ✅ — implemented: up to 3 attempts with 2s/4s exponential backoff on any network exception; constants `MAX_RETRIES` and `RETRY_DELAY_MS` are tunable at the top of the class.
 - **Configurable flags** ✅ — implemented: `--top N`, `--bar-width N`, `--min-length N` can be passed before or alongside the title; defaults to existing constants when omitted. `--help` prints usage.
+- **Direct eBook ID input** ✅ — implemented: if the argument is a plain integer, it is treated as a Gutenberg eBook ID and fetched directly via `fetchBookMetadata`; title and author are resolved from the detail page and displayed/logged identically to a title search.
 
 ### Stop-Word Discovery
 - **CrossPoll** ✅ — implemented: after each successful run, the previous book ID is read from `books.log`. If it differs from the current book, that book's text is fetched (cache-aware), its top-N words computed, and any words appearing in both top-N lists that are not already in `STOP_WORDS` are appended to `common.dat` with provenance (`word  # books A+B timestamp`). Words accumulating multiple entries across different pairs are strong candidates to promote into `STOP_WORDS`.
@@ -94,7 +100,8 @@ VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Deb
 - **Reading level estimate** — average word length + type-token ratio gives a rough complexity score per book
 
 ## Known behaviour / gotchas
-- Gutenberg search returns the **first** result; if the title is ambiguous the wrong book may be picked. Pass a precise title to avoid this.
+- Gutenberg search returns the **first** result; if the title is ambiguous the wrong book may be picked. Pass a precise title or use the numeric eBook ID directly to avoid this.
+- When a numeric ID is supplied, the title is resolved from the book's detail page (`gutenberg.org/ebooks/<id>`); if the page is unavailable the run still proceeds but the logged title will fall back to `eBook #<id>`.
 - Some older Gutenberg files use different filename patterns and may fail the two-candidate download fallback.
 - The stop-word list is opinionated — edit `STOP_WORDS` in the source to add or remove words.
 - CrossPoll re-downloads the previous book only if it is not already in `book_cache/`, so the extra network cost disappears after the first comparison.
