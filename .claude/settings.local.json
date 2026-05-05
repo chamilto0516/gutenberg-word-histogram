@@ -21,7 +21,8 @@
       "Bash(git config *)",
       "Bash(curl -s \"https://www.gutenberg.org/\")",
       "Bash(read id *)",
-      "Bash(curl -s https://www.gutenberg.org/ebooks/__TRACKED_VAR__)"
+      "Bash(curl -s https://www.gutenberg.org/ebooks/__TRACKED_VAR__)",
+      "Bash(curl -s \"https://www.gutenberg.org/ebooks/search/?query=Adventure\" -A \"Mozilla/5.0 \\(compatible; GutenbergHistogram/1.0\\)\")"
     ]
   }
 }

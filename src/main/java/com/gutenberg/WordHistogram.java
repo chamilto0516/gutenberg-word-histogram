@@ -99,8 +99,9 @@ public class WordHistogram {
             }
             int bookId = Integer.parseInt(bookInfo[0]);
             String author = bookInfo[1];
+            String foundTitle = bookInfo[2];
 
-            System.out.println("Found eBook #" + bookId + ", downloading...");
+            System.out.println("Found: " + foundTitle + " (eBook #" + bookId + "), downloading...");
             String rawText = downloadText(client, bookId);
             String text = stripGutenbergBoilerplate(rawText);
 
@@ -155,14 +156,19 @@ public class WordHistogram {
         }
         String bookId = idMatcher.group(1);
 
-        // Author appears as <span class="subtitle"> shortly after the first book link
-        Pattern authorPattern = Pattern.compile(
-            "/ebooks/" + bookId + "[^\"]*\"[^>]*>.*?<span class=\"subtitle\">([^<]+)",
+        // Title and author appear inside the first book listing
+        Pattern titleAuthorPattern = Pattern.compile(
+            "/ebooks/" + bookId + "\".*?<span class=\"title\">([^<]+)</span>.*?<span class=\"subtitle\">([^<]+)",
             Pattern.DOTALL);
-        Matcher authorMatcher = authorPattern.matcher(html);
-        String author = authorMatcher.find() ? authorMatcher.group(1).trim() : "";
+        Matcher titleAuthorMatcher = titleAuthorPattern.matcher(html);
+        String bookTitle = "";
+        String author = "";
+        if (titleAuthorMatcher.find()) {
+            bookTitle = titleAuthorMatcher.group(1).trim();
+            author = titleAuthorMatcher.group(2).trim();
+        }
 
-        return new String[]{bookId, author};
+        return new String[]{bookId, author, bookTitle};
     }
 
     private static String downloadText(HttpClient client, int bookId) throws Exception {
