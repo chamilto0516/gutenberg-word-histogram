@@ -59,6 +59,7 @@ public class WordHistogram {
         int topN = TOP_N;
         int barWidth = BAR_WIDTH;
         int minLength = 5;
+        boolean pipeMode = false;
         List<String> titleTokens = new ArrayList<>();
 
         for (int i = 0; i < args.length; i++) {
@@ -71,6 +72,9 @@ public class WordHistogram {
                     break;
                 case "--min-length":
                     if (++i < args.length) minLength = Integer.parseInt(args[i]);
+                    break;
+                case "--pipe":
+                    pipeMode = true;
                     break;
                 case "--help":
                     printUsage();
@@ -98,7 +102,7 @@ public class WordHistogram {
 
             if (title.matches("\\d+")) {
                 bookId = Integer.parseInt(title);
-                System.out.println("Looking up Project Gutenberg eBook #" + bookId + "...");
+                if (!pipeMode) System.out.println("Looking up Project Gutenberg eBook #" + bookId + "...");
                 String[] meta = fetchBookMetadata(client, bookId);
                 if (meta == null) {
                     throw new RuntimeException("Could not retrieve metadata for eBook #" + bookId);
@@ -106,7 +110,7 @@ public class WordHistogram {
                 author = meta[0];
                 foundTitle = meta[1].isEmpty() ? "eBook #" + bookId : meta[1];
             } else {
-                System.out.println("Searching Project Gutenberg for: " + title);
+                if (!pipeMode) System.out.println("Searching Project Gutenberg for: " + title);
                 String[] bookInfo = searchForBook(client, title);
                 if (bookInfo == null) {
                     throw new RuntimeException("No matching book found on Project Gutenberg");
@@ -116,8 +120,8 @@ public class WordHistogram {
                 foundTitle = bookInfo[2];
             }
 
-            System.out.println("Found: " + foundTitle + " (eBook #" + bookId + "), downloading...");
-            String rawText = downloadText(client, bookId);
+            if (!pipeMode) System.out.println("Found: " + foundTitle + " (eBook #" + bookId + "), downloading...");
+            String rawText = downloadText(client, bookId, pipeMode);
             String text = stripGutenbergBoilerplate(rawText);
 
             Map<String, Integer> freq = countWords(text, minLength);
@@ -126,11 +130,19 @@ public class WordHistogram {
                 .limit(topN)
                 .collect(Collectors.toList());
 
-            printHistogram(topWords, freq.size(), topN, barWidth, minLength);
+            if (pipeMode) {
+                for (Map.Entry<String, Integer> entry : topWords) {
+                    System.out.println(entry.getKey() + "\t" + entry.getValue());
+                }
+            } else {
+                printHistogram(topWords, freq.size(), topN, barWidth, minLength);
+                double[] readability = computeReadability(text);
+                printReadability(readability[0], readability[1]);
+            }
             int prevBookId = lastLoggedBookId();
             logRun(bookId, foundTitle, author, freq.size());
             if (prevBookId > 0 && prevBookId != bookId) {
-                crossPoll(client, bookId, topWords, prevBookId, topN);
+                crossPoll(client, bookId, topWords, prevBookId, topN, pipeMode);
             }
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
@@ -145,6 +157,7 @@ public class WordHistogram {
         System.err.println("  --top N          Words to show in histogram (default: " + TOP_N + ")");
         System.err.println("  --bar-width N    Max bar width in asterisks  (default: " + BAR_WIDTH + ")");
         System.err.println("  --min-length N   Minimum word length         (default: 5)");
+        System.err.println("  --pipe           Output word<TAB>count lines only, suitable for piping");
     }
 
     // Returns {bookId, author} or null if not found
@@ -158,7 +171,7 @@ public class WordHistogram {
             .GET()
             .build();
 
-        HttpResponse<String> resp = sendWithRetry(client, req);
+        HttpResponse<String> resp = sendWithRetry(client, req, false);
         if (resp == null || resp.statusCode() != 200) {
             return null;
         }
@@ -194,7 +207,7 @@ public class WordHistogram {
             .header("User-Agent", "Mozilla/5.0 (compatible; GutenbergHistogram/1.0)")
             .GET()
             .build();
-        HttpResponse<String> resp = sendWithRetry(client, req);
+        HttpResponse<String> resp = sendWithRetry(client, req, false);
         if (resp == null || resp.statusCode() != 200) return null;
 
         String html = resp.body();
@@ -211,10 +224,10 @@ public class WordHistogram {
         return new String[]{author, bookTitle};
     }
 
-    private static String downloadText(HttpClient client, int bookId) throws Exception {
+    private static String downloadText(HttpClient client, int bookId, boolean pipeMode) throws Exception {
         Path cacheFile = Path.of(CACHE_DIR, bookId + ".txt");
         if (Files.exists(cacheFile)) {
-            System.out.println("(cache hit)");
+            if (!pipeMode) System.out.println("(cache hit)");
             return Files.readString(cacheFile);
         }
 
@@ -229,7 +242,7 @@ public class WordHistogram {
                 .header("User-Agent", "Mozilla/5.0 (compatible; GutenbergHistogram/1.0)")
                 .GET()
                 .build();
-            HttpResponse<String> resp = sendWithRetry(client, req);
+            HttpResponse<String> resp = sendWithRetry(client, req, pipeMode);
             if (resp != null && resp.statusCode() == 200) {
                 String text = resp.body();
                 Files.createDirectories(Path.of(CACHE_DIR));
@@ -241,7 +254,7 @@ public class WordHistogram {
         throw new RuntimeException("Could not download text for eBook #" + bookId);
     }
 
-    private static HttpResponse<String> sendWithRetry(HttpClient client, HttpRequest req) throws Exception {
+    private static HttpResponse<String> sendWithRetry(HttpClient client, HttpRequest req, boolean pipeMode) throws Exception {
         Exception lastException = null;
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
@@ -249,7 +262,7 @@ public class WordHistogram {
             } catch (Exception e) {
                 lastException = e;
                 if (attempt < MAX_RETRIES) {
-                    System.out.println("(network error, retrying " + attempt + "/" + (MAX_RETRIES - 1) + "...)");
+                    if (!pipeMode) System.out.println("(network error, retrying " + attempt + "/" + (MAX_RETRIES - 1) + "...)");
                     Thread.sleep(RETRY_DELAY_MS * attempt);
                 }
             }
@@ -275,10 +288,10 @@ public class WordHistogram {
     // CrossPoll: compare current book's top-N with previous book's top-N,
     // append words in common that aren't already stop words to common.dat
     private static void crossPoll(HttpClient client, int currentId,
-            List<Map.Entry<String, Integer>> currentTop, int prevId, int topN) {
+            List<Map.Entry<String, Integer>> currentTop, int prevId, int topN, boolean pipeMode) {
         try {
-            System.out.println("\n[CrossPoll] Comparing with eBook #" + prevId + "...");
-            String prevText = stripGutenbergBoilerplate(downloadText(client, prevId));
+            if (!pipeMode) System.out.println("\n[CrossPoll] Comparing with eBook #" + prevId + "...");
+            String prevText = stripGutenbergBoilerplate(downloadText(client, prevId, false));
             Set<String> prevTopWords = countWords(prevText, 5).entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
                 .limit(topN)
@@ -296,7 +309,7 @@ public class WordHistogram {
                 .collect(Collectors.toList());
 
             if (common.isEmpty()) {
-                System.out.println("[CrossPoll] No new stop-word candidates found.");
+                if (!pipeMode) System.out.println("[CrossPoll] No new stop-word candidates found.");
                 return;
             }
 
@@ -308,9 +321,9 @@ public class WordHistogram {
             }
             Files.writeString(Path.of("common.dat"), sb.toString(),
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            System.out.println("[CrossPoll] " + common.size() + " candidate(s) appended to common.dat: " + common);
+            if (!pipeMode) System.out.println("[CrossPoll] " + common.size() + " candidate(s) appended to common.dat: " + common);
         } catch (Exception e) {
-            System.out.println("[CrossPoll] Skipped: " + e.getMessage());
+            if (!pipeMode) System.out.println("[CrossPoll] Skipped: " + e.getMessage());
         }
     }
 
@@ -369,5 +382,75 @@ public class WordHistogram {
                 entry.getKey(), bar, entry.getValue());
         }
         System.out.printf("%nTotal unique words (%d+ letters, filtered): %,d%n", minLength, totalUnique);
+    }
+
+    // Returns [avgWordLength, mattr] computed over raw (unfiltered) tokens.
+    // MATTR uses a 500-word sliding window to neutralise corpus-size bias.
+    private static double[] computeReadability(String text) {
+        String[] tokens = text.split("[^a-zA-Z]+");
+        List<String> words = new ArrayList<>();
+        long totalChars = 0;
+        for (String t : tokens) {
+            if (!t.isEmpty()) {
+                String w = t.toLowerCase();
+                words.add(w);
+                totalChars += w.length();
+            }
+        }
+        if (words.isEmpty()) return new double[]{0, 0};
+
+        double avgLen = (double) totalChars / words.size();
+
+        // MATTR: slide a window of size W, average the per-window TTR
+        final int W = 500;
+        double mattrSum = 0;
+        int windows = 0;
+        if (words.size() < W) {
+            // corpus smaller than window — fall back to plain TTR
+            long unique = words.stream().distinct().count();
+            mattrSum = (double) unique / words.size();
+            windows = 1;
+        } else {
+            Map<String, Integer> window = new HashMap<>();
+            // prime the first window
+            for (int i = 0; i < W; i++) {
+                window.merge(words.get(i), 1, Integer::sum);
+            }
+            mattrSum += (double) window.size() / W;
+            windows = 1;
+            for (int i = W; i < words.size(); i++) {
+                // add incoming word
+                window.merge(words.get(i), 1, Integer::sum);
+                // remove outgoing word
+                String out = words.get(i - W);
+                int cnt = window.get(out);
+                if (cnt == 1) window.remove(out);
+                else window.put(out, cnt - 1);
+                mattrSum += (double) window.size() / W;
+                windows++;
+            }
+        }
+        double mattr = mattrSum / windows;
+        return new double[]{avgLen, mattr};
+    }
+
+    private static void printReadability(double avgLen, double mattr) {
+        String gradeLabel;
+        if (avgLen < 4.0)      gradeLabel = "early elementary (~grade 1-2)";
+        else if (avgLen < 4.5) gradeLabel = "elementary (~grade 3-4)";
+        else if (avgLen < 5.0) gradeLabel = "middle school (~grade 5-6)";
+        else if (avgLen < 5.5) gradeLabel = "middle/high school (~grade 7-8)";
+        else if (avgLen < 6.0) gradeLabel = "high school";
+        else                   gradeLabel = "college / literary";
+
+        String diversityLabel;
+        if (mattr < 0.10)      diversityLabel = "repetitive";
+        else if (mattr < 0.20) diversityLabel = "average";
+        else if (mattr < 0.30) diversityLabel = "varied";
+        else                   diversityLabel = "highly varied";
+
+        System.out.println("\nReadability estimate:");
+        System.out.printf("  Avg word length  : %.1f chars  (%s)%n", avgLen, gradeLabel);
+        System.out.printf("  Lexical diversity: %.2f MATTR  (%s vocabulary)%n", mattr, diversityLabel);
     }
 }

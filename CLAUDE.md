@@ -1,7 +1,7 @@
 # Project: Gutenberg Word Histogram
 
 ## What this is
-A single-class Java Maven program that accepts a book title, searches Project Gutenberg for a matching plain-text file, downloads it, and prints a text histogram of the 20 most frequent words (5+ letters, stop-word filtered) with `*` bars, followed by a total unique-word count. Each run is logged to `books.log`. A CrossPoll feature compares consecutive books to surface stop-word candidates into `common.dat`. Downloaded texts are cached locally in `book_cache/` to avoid repeat network calls.
+A single-class Java Maven program that accepts a book title or Gutenberg eBook ID, downloads the plain-text file, and prints a text histogram of the 20 most frequent words (5+ letters, stop-word filtered) with `*` bars, a total unique-word count, and a readability estimate (avg word length + MATTR lexical diversity). A `--pipe` flag outputs only tab-separated `word\tcount` lines for Unix pipelines. Each run is logged to `books.log`. CrossPoll compares consecutive books to surface stop-word candidates into `common.dat`. Downloaded texts are cached locally in `book_cache/`.
 
 ## Project layout
 ```
@@ -39,13 +39,15 @@ VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Deb
 
 | Method | Purpose |
 |--------|---------|
-| `main` | Entry point — detects numeric ID vs title, orchestrates search/lookup → download → count → print → log → CrossPoll |
+| `main` | Entry point — parses flags (`--top`, `--bar-width`, `--min-length`, `--pipe`), detects numeric ID vs title, orchestrates search/lookup → download → count → print → readability → log → CrossPoll |
 | `searchForBook` | GETs `gutenberg.org/ebooks/search/?query=<title>`, regex-extracts first eBook ID and author from HTML |
 | `fetchBookMetadata` | GETs `gutenberg.org/ebooks/<id>` detail page, extracts title and author for direct-ID lookups |
-| `downloadText` | Checks `book_cache/<id>.txt` first; on miss fetches from Gutenberg and saves to cache |
+| `downloadText` | Checks `book_cache/<id>.txt` first; on miss fetches from Gutenberg and saves to cache; accepts `pipeMode` to suppress progress output |
 | `stripGutenbergBoilerplate` | Trims content to between `*** START OF` and `*** END OF` markers |
 | `countWords` | Splits on non-letters, lowercases, keeps ≥5-letter tokens not in stop-word set |
 | `printHistogram` | Scales bars to 60 `*` max, pads label column to longest word width |
+| `computeReadability` | Computes avg word length and MATTR (500-word sliding window) over all raw tokens |
+| `printReadability` | Prints grade-level label (avg word length) and diversity label (MATTR) |
 | `lastLoggedBookId` | Reads last non-empty line of `books.log` and returns its book ID |
 | `crossPoll` | Compares current book's top-N words with previous book's; appends shared non-stop-words to `common.dat` |
 | `logRun` | Appends one CSV line to `books.log` |
@@ -96,8 +98,9 @@ VS Code: open Run & Debug panel (⇧⌘D), select **Run WordHistogram** or **Deb
 - **CrossPoll** ✅ — implemented: after each successful run, the previous book ID is read from `books.log`. If it differs from the current book, that book's text is fetched (cache-aware), its top-N words computed, and any words appearing in both top-N lists that are not already in `STOP_WORDS` are appended to `common.dat` with provenance (`word  # books A+B timestamp`). Words accumulating multiple entries across different pairs are strong candidates to promote into `STOP_WORDS`.
 
 ### Output
+- **Pipe mode (`--pipe`)** ✅ — implemented: suppresses all decorative output (progress, histogram, readability, CrossPoll) and prints only tab-separated `word\tcount` lines to stdout — one per top-N word. Composable with `sort`, `awk`, `cut`, `join`, `grep`. Normal logging still runs. Example: `java -jar … --pipe "Moby Dick" | sort -t$'\t' -k2 -rn | head -5`
+- **Reading level estimate** ✅ — implemented: `computeReadability` computes avg word length (all raw tokens) and MATTR (500-word sliding window) from the stripped book text; `printReadability` prints grade-level label and vocabulary diversity label below the histogram. Suppressed in `--pipe` mode. MATTR grade labels: <0.10 repetitive, 0.10–0.20 average, 0.20–0.30 varied, 0.30+ highly varied.
 - **HTML output** — write a self-contained `histogram.html` with a real bar chart (CSS only, no dependencies)
-- **Reading level estimate** — average word length + type-token ratio gives a rough complexity score per book
 
 ## Known behaviour / gotchas
 - Gutenberg search returns the **first** result; if the title is ambiguous the wrong book may be picked. Pass a precise title or use the numeric eBook ID directly to avoid this.

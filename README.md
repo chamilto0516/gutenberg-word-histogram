@@ -1,6 +1,6 @@
 # Gutenberg Word Histogram
 
-A Java command-line tool that downloads any public-domain book from [Project Gutenberg](https://www.gutenberg.org/) by title or eBook ID and prints a text histogram of its 20 most frequently used words (5 letters or longer).
+A Java command-line tool that downloads any public-domain book from [Project Gutenberg](https://www.gutenberg.org/) by title or eBook ID and prints a text histogram of its 20 most frequently used words (5 letters or longer), followed by a readability estimate. A `--pipe` flag outputs clean tab-separated data for Unix pipelines.
 
 ## Example output
 
@@ -19,6 +19,10 @@ thought   : *************************************                         (165)
 ...
 
 Total unique words (5+ letters, filtered): 4,924
+
+Readability estimate:
+  Avg word length  : 4.2 chars  (elementary (~grade 3-4))
+  Lexical diversity: 0.48 MATTR  (highly varied vocabulary)
 ```
 
 ## Requirements
@@ -56,16 +60,43 @@ java -jar target/word-histogram-1.0-SNAPSHOT.jar 16     # Peter Pan by ID
 
 When using a title, the first Gutenberg search result is always used — supply a precise title or use the numeric ID to target a specific edition.
 
+### Options
+
+| Flag | Argument | Default | Description |
+|------|----------|---------|-------------|
+| `--top` | N | 20 | Number of words shown in the histogram |
+| `--bar-width` | N | 60 | Max `*` characters for the top word |
+| `--min-length` | N | 5 | Minimum word length to include |
+| `--pipe` | — | off | Output `word\tcount` lines only; suppress all other output |
+
+### Pipe mode
+
+`--pipe` suppresses all decorative output and prints only tab-separated `word\tcount` lines, one per top-N word. Normal logging still runs. This makes the output composable with standard Unix tools:
+
+```bash
+# Top 5 words by count
+java -jar target/word-histogram-1.0-SNAPSHOT.jar --pipe "Moby Dick" | sort -t$'\t' -k2 -rn | head -5
+
+# Words longer than 8 letters
+java -jar target/word-histogram-1.0-SNAPSHOT.jar --pipe 2701 | awk -F'\t' 'length($1) > 8'
+
+# Compare two books word-by-word with join
+java -jar target/word-histogram-1.0-SNAPSHOT.jar --pipe 76  | sort > huck.tsv
+java -jar target/word-histogram-1.0-SNAPSHOT.jar --pipe 74  | sort > tom.tsv
+join huck.tsv tom.tsv
+```
+
 ## How it works
 
 1. **Input detection** — if the argument is a plain integer it is treated as a Gutenberg eBook ID and the detail page (`gutenberg.org/ebooks/<id>`) is fetched to resolve the title and author. Otherwise the argument is treated as a title and passed to the search engine.
 2. **Search** *(title path only)* — queries `gutenberg.org/ebooks/search/?query=<title>` and extracts the first eBook ID from the HTML response.
-3. **Download** — fetches the plain-text file at `gutenberg.org/files/<id>/<id>-0.txt` (falls back to `<id>.txt`).
+3. **Download** — fetches the plain-text file at `gutenberg.org/files/<id>/<id>-0.txt` (falls back to `<id>.txt`). Checks `book_cache/<id>.txt` first; saves to cache on first download.
 4. **Strip boilerplate** — trims the Gutenberg header and footer (between `*** START OF` and `*** END OF` markers).
 5. **Tokenise** — splits on non-letter characters, lowercases all tokens, keeps only words with 5 or more letters.
 6. **Filter** — removes common English stop words (their, would, which, before, because, etc.) so the histogram reflects meaningful vocabulary.
 7. **Histogram** — selects the top 20 by frequency, scales bars proportionally to a 60-character max width, and prints the total count of unique qualifying words.
-8. **CrossPoll** — after each successful run, compares the current book's top-N words against the previous book's top-N. Any words that appear in both lists and are not already stop words are appended to `common.dat` as candidates to improve the stop-word list over time (see below).
+8. **Readability estimate** — computes average word length over all raw tokens (correlates with grade level) and MATTR (Moving Average Type-Token Ratio) using a 500-word sliding window (measures lexical diversity independent of text length).
+9. **CrossPoll** — after each successful run, compares the current book's top-N words against the previous book's top-N. Any words that appear in both lists and are not already stop words are appended to `common.dat` as candidates to improve the stop-word list over time (see below).
 
 ## CrossPoll: stop-word discovery
 
@@ -77,6 +108,33 @@ world    # books 45304+2641 2026-05-04 10:27:06
 ```
 
 The format is `word  # books <currentId>+<prevId> <timestamp>`. Words that accumulate multiple entries across different book pairs are strong candidates to add to `STOP_WORDS` in `WordHistogram.java`, making future histograms progressively more meaningful. `common.dat` is local-only and not committed to the repository.
+
+## Readability estimate
+
+After each histogram, the program prints two metrics computed from the full (unfiltered) text:
+
+**Average word length** correlates with grade level:
+
+| Avg length | Level |
+|------------|-------|
+| < 4.0 | Early elementary (grade 1–2) |
+| 4.0–4.5 | Elementary (grade 3–4) |
+| 4.5–5.0 | Middle school (grade 5–6) |
+| 5.0–5.5 | Middle/high school (grade 7–8) |
+| 5.5–6.0 | High school |
+| 6.0+ | College / literary |
+
+**MATTR** (Moving Average Type-Token Ratio) measures lexical diversity using a 500-word sliding window, making scores comparable across books of any length. Higher = richer vocabulary.
+
+Example across Mark Twain works:
+
+| Book | Avg word length | MATTR |
+|------|----------------|-------|
+| Huckleberry Finn | 3.6 (early elementary) | 0.44 |
+| Tom Sawyer | 4.0 (elementary) | 0.50 |
+| Roughing It | 4.3 (elementary) | 0.52 |
+
+Huck Finn scores lowest because Twain wrote it in dialect — short, non-standard contracted forms dominate.
 
 ## No external dependencies
 
@@ -90,7 +148,12 @@ All tunable values are constants at the top of `WordHistogram.java`:
 |----------|---------|--------|
 | `TOP_N` | `20` | Number of words shown in the histogram |
 | `BAR_WIDTH` | `60` | Maximum `*` characters for the most frequent word |
+| `CACHE_DIR` | `"book_cache"` | Directory for cached plain-text files |
+| `MAX_RETRIES` | `3` | Network retry attempts on failure |
+| `RETRY_DELAY_MS` | `2000` | Base delay between retries (doubles each attempt) |
 | `STOP_WORDS` | ~100 words | Edit the `HashSet` to add or remove filtered words |
+
+These defaults can also be overridden at runtime with `--top N`, `--bar-width N`, and `--min-length N` flags without recompiling.
 
 ## VS Code
 
